@@ -2,21 +2,26 @@ import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   PermissionFlagsBits,
-  Client,
   TextChannel,
   ChannelType,
 } from "discord.js";
-import { getConfig, setConfig, getTimer, setTimer } from "./store.js";
+import { getConfig, setConfig, getTimer, setTimer, getStoredClient } from "./store.js";
 import { logger } from "../lib/logger.js";
 
 const MIN_INTERVAL_MINUTES = 60;
 
-function startAdTimer(client: Client) {
+export function startAdTimer() {
   const existing = getTimer();
   if (existing) clearInterval(existing);
 
   const cfg = getConfig();
   if (!cfg.enabled || !cfg.channelId) return;
+
+  const client = getStoredClient();
+  if (!client) {
+    logger.warn("Cannot start ad timer — bot client not ready");
+    return;
+  }
 
   const ms = cfg.intervalMinutes * 60 * 1000;
 
@@ -24,8 +29,11 @@ function startAdTimer(client: Client) {
     const current = getConfig();
     if (!current.enabled || !current.channelId) return;
 
+    const c = getStoredClient();
+    if (!c) return;
+
     try {
-      const channel = await client.channels.fetch(current.channelId);
+      const channel = await c.channels.fetch(current.channelId);
       if (channel && channel.type === ChannelType.GuildText) {
         await (channel as TextChannel).send(current.message);
         logger.info({ channelId: current.channelId }, "Ad sent");
@@ -58,9 +66,7 @@ export const commands = [
     .addStringOption((opt) =>
       opt
         .setName("message")
-        .setDescription(
-          "The ad message. Use # for big headers, **bold**, @channel mentions, etc."
-        )
+        .setDescription("The ad message. Use # for big headers, **bold**, @channel mentions, etc.")
         .setRequired(true)
     ),
 
@@ -108,109 +114,94 @@ export const commands = [
     .setDescription("Show current ad configuration and status"),
 ];
 
-export async function handleCommand(
-  interaction: ChatInputCommandInteraction,
-  client: Client
-) {
+export async function handleCommand(interaction: ChatInputCommandInteraction) {
   const { commandName } = interaction;
 
   if (commandName === "ad-set-message") {
     const message = interaction.options.getString("message", true);
     setConfig({ message });
     await interaction.reply({
-      content: `✅ Ad message updated!\n\n**Preview:**\n${message}`,
+      content: `Ad message updated!\n\nPreview:\n${message}`,
       ephemeral: true,
     });
 
   } else if (commandName === "ad-set-channel") {
     const channel = interaction.options.getChannel("channel", true);
     if (channel.type !== ChannelType.GuildText) {
-      await interaction.reply({
-        content: "❌ Please select a text channel.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Please select a text channel.", ephemeral: true });
       return;
     }
     setConfig({ channelId: channel.id });
-    await interaction.reply({
-      content: `✅ Ads will be sent to <#${channel.id}>`,
-      ephemeral: true,
-    });
+    await interaction.reply({ content: `Ads will be sent to <#${channel.id}>`, ephemeral: true });
 
   } else if (commandName === "ad-set-interval") {
     const minutes = interaction.options.getInteger("minutes", true);
     if (minutes < MIN_INTERVAL_MINUTES) {
       await interaction.reply({
-        content: `❌ Interval must be at least **${MIN_INTERVAL_MINUTES} minutes** to comply with Discord's guidelines.`,
+        content: `Interval must be at least **${MIN_INTERVAL_MINUTES} minutes**.`,
         ephemeral: true,
       });
       return;
     }
     setConfig({ intervalMinutes: minutes });
     const cfg = getConfig();
-    if (cfg.enabled) {
-      startAdTimer(client);
-    }
+    if (cfg.enabled) startAdTimer();
     await interaction.reply({
-      content: `✅ Ad interval set to **${minutes} minutes**. ${cfg.enabled ? "Timer restarted." : "Start ads with /ad-start."}`,
+      content: `Ad interval set to **${minutes} minutes**. ${cfg.enabled ? "Timer restarted." : "Start ads with /ad-start."}`,
       ephemeral: true,
     });
 
   } else if (commandName === "ad-start") {
     const cfg = getConfig();
     if (!cfg.channelId) {
-      await interaction.reply({
-        content: "❌ Set a channel first with `/ad-set-channel`.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Set a channel first with `/ad-set-channel`.", ephemeral: true });
       return;
     }
     setConfig({ enabled: true });
-    startAdTimer(client);
+    startAdTimer();
+    const updated = getConfig();
     await interaction.reply({
-      content: `✅ Ads started! Sending every **${cfg.intervalMinutes} minutes** to <#${cfg.channelId}>`,
+      content: `Ads started! Sending every **${updated.intervalMinutes} minutes** to <#${updated.channelId}>`,
       ephemeral: true,
     });
 
   } else if (commandName === "ad-stop") {
     setConfig({ enabled: false });
     stopAdTimer();
-    await interaction.reply({
-      content: "🛑 Ads stopped.",
-      ephemeral: true,
-    });
+    await interaction.reply({ content: "Ads stopped.", ephemeral: true });
 
   } else if (commandName === "ad-send-now") {
     const cfg = getConfig();
     if (!cfg.channelId) {
-      await interaction.reply({
-        content: "❌ Set a channel first with `/ad-set-channel`.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Set a channel first with `/ad-set-channel`.", ephemeral: true });
       return;
     }
     await interaction.deferReply({ ephemeral: true });
     try {
+      const client = getStoredClient();
+      if (!client) {
+        await interaction.editReply("Bot client not ready.");
+        return;
+      }
       const channel = await client.channels.fetch(cfg.channelId);
       if (channel && channel.type === ChannelType.GuildText) {
         await (channel as TextChannel).send(cfg.message);
-        await interaction.editReply(`✅ Ad sent to <#${cfg.channelId}>!`);
+        await interaction.editReply(`Ad sent to <#${cfg.channelId}>!`);
       } else {
-        await interaction.editReply("❌ The configured channel is not a text channel or the bot can't access it.");
+        await interaction.editReply("Could not find the configured channel. Make sure the bot has access.");
       }
     } catch (err) {
       logger.error({ err }, "Failed to send ad now");
-      await interaction.editReply("❌ Failed to send ad. Make sure the bot has **Send Messages** permission in that channel.");
+      await interaction.editReply("Failed to send ad. Check bot permissions.");
     }
 
   } else if (commandName === "ad-status") {
     const cfg = getConfig();
-    const statusEmoji = cfg.enabled ? "🟢" : "🔴";
+    const statusEmoji = cfg.enabled ? "ON" : "OFF";
     const channelText = cfg.channelId ? `<#${cfg.channelId}>` : "_Not set_";
     const status = [
-      `**Ad Bot Status** ${statusEmoji}`,
+      `**Ad Bot — ${statusEmoji}**`,
       ``,
-      `**Status:** ${cfg.enabled ? "Running" : "Stopped"}`,
       `**Channel:** ${channelText}`,
       `**Interval:** ${cfg.intervalMinutes} minutes`,
       `**Message:**\n\`\`\`\n${cfg.message.slice(0, 500)}\n\`\`\``,

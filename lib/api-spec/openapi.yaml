@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: API specification
@@ -10,6 +9,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: bot
+    description: Discord bot controls
 paths:
   /healthz:
     get:
@@ -24,6 +25,78 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get bot status and config
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/config:
+    post:
+      operationId: updateBotConfig
+      tags: [bot]
+      summary: Update bot configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotConfigInput"
+      responses:
+        "200":
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/start:
+    post:
+      operationId: startAds
+      tags: [bot]
+      summary: Start sending ads
+      responses:
+        "200":
+          description: Ads started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/stop:
+    post:
+      operationId: stopAds
+      tags: [bot]
+      summary: Stop sending ads
+      responses:
+        "200":
+          description: Ads stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/send-now:
+    post:
+      operationId: sendAdNow
+      tags: [bot]
+      summary: Send ad immediately
+      responses:
+        "200":
+          description: Ad sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendNowResult"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +107,37 @@ components:
       required:
         - status
 
+    BotStatus:
+      type: object
+      required: [online, enabled, message, channelId, intervalMinutes]
+      properties:
+        online:
+          type: boolean
+        enabled:
+          type: boolean
+        message:
+          type: string
+        channelId:
+          type: string
+        intervalMinutes:
+          type: integer
+
+    BotConfigInput:
+      type: object
+      properties:
+        message:
+          type: string
+        channelId:
+          type: string
+        intervalMinutes:
+          type: integer
+          minimum: 60
+
+    SendNowResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
