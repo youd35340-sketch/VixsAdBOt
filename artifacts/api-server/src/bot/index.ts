@@ -8,7 +8,7 @@ import {
   Guild,
 } from "discord.js";
 import { commands, handleCommand, stopAdTimer, startAdTimer } from "./commands.js";
-import { setStoredClient, getStoredClient, getConfig } from "./store.js";
+import { setStoredClient, getStoredClient, getConfig, setBotClientId } from "./store.js";
 import { logger } from "../lib/logger.js";
 
 let botOnline = false;
@@ -52,7 +52,8 @@ async function createAndConnectClient(token: string, attempt: number): Promise<v
     setStoredClient(client);
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
-    logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size }, "Discord bot logged in");
+    setBotClientId(c.user.id);
+    logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size, clientId: c.user.id }, "Discord bot logged in");
 
     for (const guild of c.guilds.cache.values()) {
       await registerCommandsForGuild(rest, c.user.id, guild);
@@ -73,14 +74,19 @@ async function createAndConnectClient(token: string, attempt: number): Promise<v
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
+    logger.info({ type: interaction.type, isCommand: interaction.isChatInputCommand() }, "Interaction received");
     if (!interaction.isChatInputCommand()) return;
+    const name = interaction.commandName;
+    logger.info({ commandName: name }, "Slash command received");
     try {
       await handleCommand(interaction as ChatInputCommandInteraction);
     } catch (err) {
-      logger.error({ err }, "Error handling command");
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "Something went wrong.", ephemeral: true });
-      }
+      logger.error({ err, commandName: name }, "Error handling command");
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Something went wrong processing that command.", ephemeral: true });
+        }
+      } catch {}
     }
   });
 
@@ -102,12 +108,6 @@ async function createAndConnectClient(token: string, attempt: number): Promise<v
     logger.error({ err }, "Discord client error");
   });
 
-  client.on(Events.Invalidated, () => {
-    logger.error("Discord session invalidated — scheduling reconnect");
-    botOnline = false;
-    stopAdTimer();
-    scheduleReconnect(token, 1);
-  });
 
   try {
     await client.login(token);

@@ -207,5 +207,7 @@ export async function handleCommand(interaction: ChatInputCommandInteraction) {
       `**Message:**\n\`\`\`\n${cfg.message.slice(0, 500)}\n\`\`\``,
     ].join("\n");
     await interaction.reply({ content: status, ephemeral: true });
+  } else {
+    await interaction.reply({ content: `Unknown command: \`${commandName}\``, ephemeral: true });
   }
 }

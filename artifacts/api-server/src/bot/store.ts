@@ -17,6 +17,7 @@ const defaultConfig: AdConfig = {
 let config: AdConfig = { ...defaultConfig };
 let timer: ReturnType<typeof setInterval> | null = null;
 let discordClient: Client | null = null;
+let botClientId: string | null = null;
 
 export function getConfig(): AdConfig {
   return { ...config };
@@ -41,4 +42,12 @@ export function getStoredClient(): Client | null {
 
 export function setStoredClient(client: Client): void {
   discordClient = client;
+}
+
+export function getBotClientId(): string | null {
+  return botClientId;
+}
+
+export function setBotClientId(id: string): void {
+  botClientId = id;
 }

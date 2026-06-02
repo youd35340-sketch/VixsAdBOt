@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getConfig, setConfig, getStoredClient } from "../bot/store.js";
+import { getConfig, setConfig, getStoredClient, getBotClientId } from "../bot/store.js";
 import { stopAdTimer, startAdTimer } from "../bot/commands.js";
 import { getBotOnline } from "../bot/index.js";
 import { ChannelType, TextChannel } from "discord.js";
@@ -88,6 +88,17 @@ router.post("/send-now", async (_req, res) => {
     logger.error({ err }, "Failed to send ad via dashboard");
     res.json({ success: false, message: "Failed to send. Check bot permissions in that channel." });
   }
+});
+
+router.get("/invite", (_req, res) => {
+  const clientId = getBotClientId();
+  if (!clientId) {
+    res.status(503).json({ error: "Bot not connected yet — try again in a moment" });
+    return;
+  }
+  const perms = "117760"; // VIEW_CHANNEL + SEND_MESSAGES + EMBED_LINKS + ATTACH_FILES + READ_MESSAGE_HISTORY
+  const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${perms}&scope=bot%20applications.commands`;
+  res.json({ url, clientId });
 });
 
 export default router;

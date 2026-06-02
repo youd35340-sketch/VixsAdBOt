@@ -46,8 +46,12 @@ import {
   Clock,
   AlignLeft,
   Server,
-  TerminalSquare
+  TerminalSquare,
+  ExternalLink,
+  TriangleAlert
 } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const configSchema = z.object({
   channelId: z.string().min(1, "Channel ID is required"),
@@ -55,9 +59,17 @@ const configSchema = z.object({
   intervalMinutes: z.coerce.number().min(60, "Interval must be at least 60 minutes"),
 });
 
+async function fetchInviteUrl(): Promise<string> {
+  const res = await fetch(`${BASE}/api/bot/invite`);
+  if (!res.ok) throw new Error("Bot not ready");
+  const data = await res.json() as { url: string };
+  return data.url;
+}
+
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [inviteLoading, setInviteLoading] = React.useState(false);
 
   const { data: status, isLoading, isError } = useGetBotStatus({
     query: {
@@ -125,6 +137,18 @@ export default function DashboardPage() {
           toast({ title: "Ads Started", description: "Automated ads have been started." });
         }
       });
+    }
+  };
+
+  const onInvite = async () => {
+    setInviteLoading(true);
+    try {
+      const url = await fetchInviteUrl();
+      window.open(url, "_blank", "noopener");
+    } catch {
+      toast({ title: "Error", description: "Could not get invite URL. Wait for the bot to connect.", variant: "destructive" });
+    } finally {
+      setInviteLoading(false);
     }
   };
 
@@ -205,6 +229,19 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-lg border border-yellow-400/50 bg-yellow-50 dark:bg-yellow-950/20 px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <TriangleAlert className="h-5 w-5 text-yellow-600 shrink-0" />
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              <span className="font-semibold">Slash commands not working?</span> Re-invite the bot with the correct permissions — this grants the <code className="bg-yellow-200/60 dark:bg-yellow-800/40 px-1 rounded text-xs">applications.commands</code> scope required for slash commands.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="shrink-0 border-yellow-500 text-yellow-800 dark:text-yellow-200 hover:bg-yellow-100 dark:hover:bg-yellow-900" onClick={onInvite} disabled={inviteLoading}>
+            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+            {inviteLoading ? "Loading..." : "Re-invite Bot"}
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
