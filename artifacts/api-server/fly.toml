@@ -1,6 +1,6 @@
 # fly.toml - Fly.io configuration for the Discord Ad Bot
 
-app = "vix-ad-bot"
+app = "vix-ad-bot-11221"
 primary_region = "iad"
 
 [build]
