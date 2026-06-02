@@ -8,7 +8,7 @@ export interface AdConfig {
 const defaultConfig: AdConfig = {
   message: "# 🛍️ Shop Now!\nCheck out our latest deals — don't miss out!",
   channelId: "",
-  intervalMinutes: 60,
+  intervalMinutes: 60, 
   enabled: false,
 };
 

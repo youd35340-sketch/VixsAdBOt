@@ -4,9 +4,12 @@ import {
   PermissionFlagsBits,
   Client,
   TextChannel,
+  ChannelType,
 } from "discord.js";
 import { getConfig, setConfig, getTimer, setTimer } from "./store.js";
 import { logger } from "../lib/logger.js";
+
+const MIN_INTERVAL_MINUTES = 60;
 
 function startAdTimer(client: Client) {
   const existing = getTimer();
@@ -23,9 +26,11 @@ function startAdTimer(client: Client) {
 
     try {
       const channel = await client.channels.fetch(current.channelId);
-      if (channel && channel instanceof TextChannel) {
-        await channel.send(current.message);
+      if (channel && channel.type === ChannelType.GuildText) {
+        await (channel as TextChannel).send(current.message);
         logger.info({ channelId: current.channelId }, "Ad sent");
+      } else {
+        logger.warn({ channelId: current.channelId }, "Configured channel is not a guild text channel — skipping");
       }
     } catch (err) {
       logger.error({ err }, "Failed to send ad");
@@ -61,25 +66,26 @@ export const commands = [
 
   new SlashCommandBuilder()
     .setName("ad-set-channel")
-    .setDescription("Set the channel where ads will be sent")
+    .setDescription("Set the text channel where ads will be sent")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addChannelOption((opt) =>
       opt
         .setName("channel")
         .setDescription("The text channel to send ads to")
         .setRequired(true)
+        .addChannelTypes(ChannelType.GuildText)
     ),
 
   new SlashCommandBuilder()
     .setName("ad-set-interval")
-    .setDescription("Set how often ads are sent (in minutes, default 60)")
+    .setDescription(`Set how often ads are sent (minimum ${MIN_INTERVAL_MINUTES} minutes)`)
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addIntegerOption((opt) =>
       opt
         .setName("minutes")
-        .setDescription("Interval in minutes (minimum 1)")
+        .setDescription(`Interval in minutes (minimum ${MIN_INTERVAL_MINUTES})`)
         .setRequired(true)
-        .setMinValue(1)
+        .setMinValue(MIN_INTERVAL_MINUTES)
     ),
 
   new SlashCommandBuilder()
@@ -115,9 +121,10 @@ export async function handleCommand(
       content: `✅ Ad message updated!\n\n**Preview:**\n${message}`,
       ephemeral: true,
     });
+
   } else if (commandName === "ad-set-channel") {
     const channel = interaction.options.getChannel("channel", true);
-    if (!(channel instanceof TextChannel)) {
+    if (channel.type !== ChannelType.GuildText) {
       await interaction.reply({
         content: "❌ Please select a text channel.",
         ephemeral: true,
@@ -129,17 +136,26 @@ export async function handleCommand(
       content: `✅ Ads will be sent to <#${channel.id}>`,
       ephemeral: true,
     });
+
   } else if (commandName === "ad-set-interval") {
     const minutes = interaction.options.getInteger("minutes", true);
+    if (minutes < MIN_INTERVAL_MINUTES) {
+      await interaction.reply({
+        content: `❌ Interval must be at least **${MIN_INTERVAL_MINUTES} minutes** to comply with Discord's guidelines.`,
+        ephemeral: true,
+      });
+      return;
+    }
     setConfig({ intervalMinutes: minutes });
     const cfg = getConfig();
     if (cfg.enabled) {
       startAdTimer(client);
     }
     await interaction.reply({
-      content: `✅ Ad interval set to **${minutes} minute${minutes === 1 ? "" : "s"}**. ${cfg.enabled ? "Timer restarted." : "Start ads with /ad-start."}`,
+      content: `✅ Ad interval set to **${minutes} minutes**. ${cfg.enabled ? "Timer restarted." : "Start ads with /ad-start."}`,
       ephemeral: true,
     });
+
   } else if (commandName === "ad-start") {
     const cfg = getConfig();
     if (!cfg.channelId) {
@@ -152,9 +168,10 @@ export async function handleCommand(
     setConfig({ enabled: true });
     startAdTimer(client);
     await interaction.reply({
-      content: `✅ Ads started! Sending every **${cfg.intervalMinutes} minute${cfg.intervalMinutes === 1 ? "" : "s"}** to <#${cfg.channelId}>`,
+      content: `✅ Ads started! Sending every **${cfg.intervalMinutes} minutes** to <#${cfg.channelId}>`,
       ephemeral: true,
     });
+
   } else if (commandName === "ad-stop") {
     setConfig({ enabled: false });
     stopAdTimer();
@@ -162,6 +179,7 @@ export async function handleCommand(
       content: "🛑 Ads stopped.",
       ephemeral: true,
     });
+
   } else if (commandName === "ad-send-now") {
     const cfg = getConfig();
     if (!cfg.channelId) {
@@ -174,16 +192,17 @@ export async function handleCommand(
     await interaction.deferReply({ ephemeral: true });
     try {
       const channel = await client.channels.fetch(cfg.channelId);
-      if (channel && channel instanceof TextChannel) {
-        await channel.send(cfg.message);
+      if (channel && channel.type === ChannelType.GuildText) {
+        await (channel as TextChannel).send(cfg.message);
         await interaction.editReply(`✅ Ad sent to <#${cfg.channelId}>!`);
       } else {
-        await interaction.editReply("❌ Could not find the configured channel. Make sure the bot has access.");
+        await interaction.editReply("❌ The configured channel is not a text channel or the bot can't access it.");
       }
     } catch (err) {
       logger.error({ err }, "Failed to send ad now");
-      await interaction.editReply("❌ Failed to send ad. Check bot permissions.");
+      await interaction.editReply("❌ Failed to send ad. Make sure the bot has **Send Messages** permission in that channel.");
     }
+
   } else if (commandName === "ad-status") {
     const cfg = getConfig();
     const statusEmoji = cfg.enabled ? "🟢" : "🔴";
@@ -193,7 +212,7 @@ export async function handleCommand(
       ``,
       `**Status:** ${cfg.enabled ? "Running" : "Stopped"}`,
       `**Channel:** ${channelText}`,
-      `**Interval:** ${cfg.intervalMinutes} minute${cfg.intervalMinutes === 1 ? "" : "s"}`,
+      `**Interval:** ${cfg.intervalMinutes} minutes`,
       `**Message:**\n\`\`\`\n${cfg.message.slice(0, 500)}\n\`\`\``,
     ].join("\n");
     await interaction.reply({ content: status, ephemeral: true });
