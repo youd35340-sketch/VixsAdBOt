@@ -1,5 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startBot } from "./bot/index";
+
+startBot().catch((err) => logger.error({ err }, "Bot startup failed"));
 
 const rawPort = process.env["PORT"];
 
