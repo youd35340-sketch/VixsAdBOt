@@ -4,16 +4,16 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-# Copy workspace root files
-COPY ../../package.json ../../pnpm-workspace.yaml ../../pnpm-lock.yaml ./
+# Copy workspace root config (build context is repo root)
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 
 # Copy shared packages
-COPY ../../packages ./packages
+COPY packages ./packages
 
 # Copy the api-server artifact
-COPY . ./artifacts/api-server
+COPY artifacts/api-server ./artifacts/api-server
 
-# Install all dependencies
+# Install all dependencies from workspace root
 RUN pnpm install --frozen-lockfile
 
 # Build the api-server

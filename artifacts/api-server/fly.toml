@@ -4,8 +4,7 @@ app = "your-app-name"
 primary_region = "iad"
 
 [build]
-  [build.args]
-    NODE_VERSION = "20"
+  dockerfile = "artifacts/api-server/Dockerfile"
 
 [processes]
   app = "node --enable-source-maps ./dist/index.js"
