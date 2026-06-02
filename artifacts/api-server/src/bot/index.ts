@@ -7,11 +7,13 @@ import {
   ChatInputCommandInteraction,
   Guild,
 } from "discord.js";
-import { commands, handleCommand } from "./commands.js";
-import { setStoredClient, getStoredClient } from "./store.js";
+import { commands, handleCommand, stopAdTimer, startAdTimer } from "./commands.js";
+import { setStoredClient, getStoredClient, getConfig } from "./store.js";
 import { logger } from "../lib/logger.js";
 
 let botOnline = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let isShuttingDown = false;
 
 export function getBotOnline(): boolean {
   return botOnline;
@@ -31,23 +33,36 @@ async function registerCommandsForGuild(rest: REST, appId: string, guild: Guild)
   }
 }
 
-export async function startBot() {
-  const token = process.env["DISCORD_BOT_TOKEN"];
-  if (!token) {
-    logger.error("DISCORD_BOT_TOKEN is not set — bot will not start");
-    return;
+async function createAndConnectClient(token: string, attempt: number): Promise<void> {
+  // Destroy any previous client cleanly
+  const existing = getStoredClient();
+  if (existing) {
+    try { existing.destroy(); } catch {}
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds],
+    // discord.js handles gateway reconnects automatically
+  });
+
   const rest = new REST({ version: "10" }).setToken(token);
 
   client.once(Events.ClientReady, async (c) => {
     botOnline = true;
     setStoredClient(client);
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
     logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size }, "Discord bot logged in");
 
     for (const guild of c.guilds.cache.values()) {
       await registerCommandsForGuild(rest, c.user.id, guild);
+    }
+
+    // Resume ad timer if it was running before a reconnect
+    const cfg = getConfig();
+    if (cfg.enabled && cfg.channelId) {
+      startAdTimer();
+      logger.info("Ad timer resumed after reconnect");
     }
   });
 
@@ -69,15 +84,65 @@ export async function startBot() {
     }
   });
 
+  client.on(Events.ShardDisconnect, (_event, shardId) => {
+    logger.warn({ shardId }, "Bot shard disconnected — discord.js will attempt to reconnect");
+    botOnline = false;
+  });
+
+  client.on(Events.ShardReconnecting, (shardId) => {
+    logger.info({ shardId }, "Bot shard reconnecting...");
+  });
+
+  client.on(Events.ShardResume, (shardId) => {
+    logger.info({ shardId }, "Bot shard resumed");
+    botOnline = true;
+  });
+
   client.on(Events.Error, (err) => {
     logger.error({ err }, "Discord client error");
+  });
+
+  client.on(Events.Invalidated, () => {
+    logger.error("Discord session invalidated — scheduling reconnect");
     botOnline = false;
+    stopAdTimer();
+    scheduleReconnect(token, 1);
   });
 
   try {
     await client.login(token);
   } catch (err) {
-    logger.error({ err }, "Failed to login to Discord");
+    logger.error({ err, attempt }, "Failed to login to Discord");
     botOnline = false;
+    scheduleReconnect(token, attempt);
   }
 }
+
+function scheduleReconnect(token: string, attempt: number) {
+  if (isShuttingDown) return;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+
+  // Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
+  const delay = Math.min(5000 * Math.pow(2, attempt - 1), 60_000);
+  logger.info({ delayMs: delay, attempt }, "Scheduling bot reconnect");
+
+  reconnectTimer = setTimeout(async () => {
+    logger.info({ attempt }, "Attempting bot reconnect");
+    await createAndConnectClient(token, attempt + 1);
+  }, delay);
+}
+
+export async function startBot() {
+  const token = process.env["DISCORD_BOT_TOKEN"];
+  if (!token) {
+    logger.error("DISCORD_BOT_TOKEN is not set — bot will not start");
+    return;
+  }
+
+  isShuttingDown = false;
+  await createAndConnectClient(token, 1);
+}
+
+// Graceful shutdown — don't reconnect if the process is exiting
+process.once("SIGTERM", () => { isShuttingDown = true; });
+process.once("SIGINT", () => { isShuttingDown = true; });
