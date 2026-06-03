@@ -1,0 +1,16 @@
+{
+  "name": "vix-ad-bot",
+  "version": "1.0.0",
+  "description": "Discord ad bot — runs without a web dashboard",
+  "main": "bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
