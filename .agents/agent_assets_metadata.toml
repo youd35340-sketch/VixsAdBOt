@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MF1ebuneaJ-inC6df5cqj"
+uri = "file://bot-standalone.zip"
+type = "unspecified"
+title = "Vix Ad Bot — Standalone (for justrunmyapp.com)"
